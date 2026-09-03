@@ -2,9 +2,11 @@ import time
 import logging
 import sys
 import io
+import os
 import threading
 import asyncio
 import random
+from http.server import HTTPServer, BaseHTTPRequestHandler
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 if sys.platform == "win32":
@@ -25,6 +27,27 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(me
 # Global target numbers cache
 target_numbers_cache = []
 last_cache_time = 0
+
+class HealthCheckHandler(BaseHTTPRequestHandler):
+    """HTTP Health Check Handler for Render Free Web Service tier."""
+    def do_GET(self):
+        self.send_response(200)
+        self.send_header("Content-Type", "text/plain")
+        self.end_headers()
+        self.wfile.write(b"Bot is Running Live 24/7!")
+
+    def log_message(self, format, *args):
+        return # Silent HTTP logs
+
+def start_health_check_server():
+    """Start lightweight HTTP server on $PORT for Render Free Web Service."""
+    port = int(os.getenv("PORT", 8080))
+    try:
+        server = HTTPServer(("0.0.0.0", port), HealthCheckHandler)
+        logging.info(f"🌐 Health Check HTTP Server running on port {port} for Render Free Web Service.")
+        server.serve_forever()
+    except Exception as e:
+        logging.error(f"HTTP Server error: {e}")
 
 def start_admin_bot_thread():
     """Run Telegram Admin Bot in a background thread with auto-retry on network disconnects."""
@@ -147,7 +170,13 @@ def run_scanner_loop():
         time.sleep(3)
 
 if __name__ == "__main__":
+    # Start HTTP Health Server thread for Render Free Web Service
+    health_thread = threading.Thread(target=start_health_check_server, daemon=True)
+    health_thread.start()
+
+    # Start Telegram Admin Bot thread
     admin_thread = threading.Thread(target=start_admin_bot_thread, daemon=True)
     admin_thread.start()
 
+    # Start Scanner Loop
     run_scanner_loop()
