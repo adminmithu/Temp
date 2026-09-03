@@ -1,5 +1,6 @@
 import logging
 import time
+import html
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     ApplicationBuilder, CommandHandler, CallbackQueryHandler,
@@ -349,15 +350,15 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
         keyboard = [[InlineKeyboardButton("🔙 Main Menu", callback_data="user_main_menu")]]
         await query.edit_message_text(search_help, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard))
 
-    # 11. Help & Info
+    # 11. Help & Info (Cleaned Help text without mentioning /admin)
     elif data == "user_help":
         help_text = (
             "❓ *HELP & BOT INFORMATION*\n\n"
-            "1. Click *[ 📱 Get Number ]* to choose a number.\n"
-            "2. The number stays active for *5 minutes* for your session.\n"
-            "3. Any incoming SMS will post to the *Telegram Group* and sent to your *Private Inbox*.\n"
-            "4. Monospace OTP codes can be copied with *1-click tap*.\n\n"
-            "👑 Admin Panel command: `/admin`"
+            "1. Click *[ 📱 Get Number ]* to select a temporary number.\n"
+            "2. Choose your app/service for private OTP alerts.\n"
+            "3. Your session stays active for *5 minutes*.\n"
+            "4. Monospace OTP codes can be copied with a *1-click tap*.\n"
+            "5. All incoming SMS are posted live in the Telegram Group!"
         )
         keyboard = [[InlineKeyboardButton("🔙 Main Menu", callback_data="user_main_menu")]]
         await query.edit_message_text(help_text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard))
@@ -397,8 +398,8 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
         flag = get_country_flag(c_name)
 
         notice_text = (
-            f"🎉 *NEW NUMBERS ADDED IN {flag} {c_name.upper()}!*\n\n"
-            f"📱 New numbers for *{c_name}* are now active and ready for receiving SMS OTP codes!\n"
+            f"🎉 <b>NEW NUMBERS ADDED IN {flag} {c_name.upper()}!</b>\n\n"
+            f"📱 New numbers for <b>{c_name}</b> are now active and ready for receiving SMS OTP codes!\n"
             f"⚡ Start getting verification codes instantly!"
         )
         send_group_notice(notice_text)
