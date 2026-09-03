@@ -116,7 +116,8 @@ def detect_service_name(message_text: str) -> str:
     return "SMS Verification"
 
 def extract_otp_code(message_text: str) -> str:
-    """Extract full unmasked OTP code from message text."""
+    """Extract FULL UNMASKED numeric OTP code from message text. Never return ****."""
+    # 1. Match numeric code patterns like 123456, 123-456, G-123456
     match = re.search(r'(?:code|otp|pin|is|verification\s*code|kod|passcode|secret)[\s:\-\=]+([A-Z0-9]{4,8})\b', message_text, re.IGNORECASE)
     if match:
         code = match.group(1).strip()
@@ -125,27 +126,32 @@ def extract_otp_code(message_text: str) -> str:
 
     hyphen_match = re.search(r'\b(\d{3}[-\s]\d{3})\b', message_text)
     if hyphen_match:
-        return hyphen_match.group(1).replace(" ", "")
+        c = hyphen_match.group(1).replace(" ", "")
+        if "*" not in c:
+            return c
 
+    # Search for pure 4-8 digit numbers
     digits = re.findall(r'\b(\d{4,8})\b', message_text)
     for d in digits:
         if d.startswith("202") and len(d) == 4:
             continue
         if d.startswith("358") or d.startswith("447") or d.startswith("186"):
             continue
-        return d
+        if "*" not in d:
+            return d
 
+    # Alphanumeric fallback if pure digits not found
     code_match = re.search(r'\b([A-Z0-9]{4,8})\b', message_text)
     if code_match:
         c = code_match.group(1)
         if not c.startswith("202") and not c.startswith("http") and "*" not in c:
             return c
 
-    return "N/A"
+    return "Check Message"
 
 class TempPhoneScraper:
     def __init__(self):
-        # Impersonate Chrome browser TLS fingerprinting to bypass Cloudflare 403 on Render
+        # Impersonate Chrome browser TLS fingerprinting to bypass Cloudflare 403
         self.session = c_requests.Session(impersonate="chrome120")
         self.session.headers.update(HEADERS)
         self.is_logged_in = False
@@ -179,17 +185,64 @@ class TempPhoneScraper:
             logging.error(f"Error authenticating scraper: {e}")
 
     def fetch_all_active_numbers(self, max_pages: int = 5):
-        """Fetch active numbers using curl_cffi Chrome impersonation to bypass Cloudflare 403 on Render."""
+        """
+        Fetch ALL active numbers with DEDICATED DIRECT SCRAPING for UK and Canada numbers!
+        Ensures UK & Canada numbers get 100% priority scanning.
+        """
         all_numbers = []
         try:
+            # 1. DEDICATED DIRECT SCRAPE FOR UK NUMBERS
+            uk_url = "https://temporary-phone-number.com/UK-Phone-Number/"
+            time.sleep(0.3)
+            uk_res = self.session.get(uk_url, timeout=10)
+            if uk_res.status_code == 200:
+                soup_uk = BeautifulSoup(uk_res.text, "html.parser")
+                for a_tag in soup_uk.find_all("a", href=True):
+                    href = a_tag["href"]
+                    match = re.search(r'/UK-Phone-Number/(\d{8,})', href, re.I)
+                    if match:
+                        raw_num = match.group(1)
+                        formatted_num = f"+{raw_num}"
+                        full_url = href if href.startswith("http") else BASE_URL + href
+                        if not any(n["number"] == formatted_num for n in all_numbers):
+                            all_numbers.append({
+                                "country": "UK",
+                                "flag": "🇬🇧",
+                                "number": formatted_num,
+                                "raw_number": raw_num,
+                                "url": full_url
+                            })
+
+            # 2. DEDICATED DIRECT SCRAPE FOR CANADA NUMBERS
+            ca_url = "https://temporary-phone-number.com/Canada-Phone-Number/"
+            time.sleep(0.3)
+            ca_res = self.session.get(ca_url, timeout=10)
+            if ca_res.status_code == 200:
+                soup_ca = BeautifulSoup(ca_res.text, "html.parser")
+                for a_tag in soup_ca.find_all("a", href=True):
+                    href = a_tag["href"]
+                    match = re.search(r'/Canada-Phone-Number/(\d{8,})', href, re.I)
+                    if match:
+                        raw_num = match.group(1)
+                        formatted_num = f"+{raw_num}"
+                        full_url = href if href.startswith("http") else BASE_URL + href
+                        if not any(n["number"] == formatted_num for n in all_numbers):
+                            all_numbers.append({
+                                "country": "Canada",
+                                "flag": "🇨🇦",
+                                "number": formatted_num,
+                                "raw_number": raw_num,
+                                "url": full_url
+                            })
+
+            # 3. SCRAPE HOMEPAGE PAGES 1-5 FOR ALL OTHER ACTIVE COUNTRIES (US, Sweden, Netherlands, Finland, etc.)
             for page in range(1, max_pages + 1):
                 url = f"https://temporary-phone-number.com/?page={page}" if page > 1 else "https://temporary-phone-number.com/"
-                time.sleep(random.uniform(0.3, 0.6))
+                time.sleep(random.uniform(0.3, 0.5))
                 
                 res = self.session.get(url, timeout=10)
                 if res.status_code in [403, 429]:
-                    logging.warning(f"Cloudflare notice ({res.status_code}) on page {page}. Retrying with backoff...")
-                    time.sleep(2.5)
+                    time.sleep(2)
                     res = self.session.get(url, timeout=10)
 
                 if res.status_code != 200:
@@ -215,10 +268,11 @@ class TempPhoneScraper:
                                 "url": full_url
                             })
 
-            priority_names = ["UK", "United Kingdom", "Canada", "US", "USA", "United States"]
+            # Sort to place UK & Canada at the VERY TOP of priority scanning!
+            priority_names = ["UK", "United Kingdom", "Canada"]
             all_numbers.sort(key=lambda n: 0 if any(p.lower() in n['country'].lower() for p in priority_names) else 1)
 
-            logging.info(f"⚡ Total Active Phone Numbers Scraped (Priority UK, Canada, US): {len(all_numbers)}")
+            logging.info(f"⚡ Total Active Phone Numbers Scraped (PRIORITY UK 🇬🇧 & CANADA 🇨🇦): {len(all_numbers)}")
         except Exception as e:
             logging.error(f"Error fetching active numbers: {e}")
         return all_numbers
@@ -255,7 +309,7 @@ class TempPhoneScraper:
         flag = get_country_flag(country_name)
 
         try:
-            time.sleep(random.uniform(0.2, 0.5))
+            time.sleep(random.uniform(0.2, 0.4))
             res = self.session.get(url, timeout=8)
             if res.status_code in [403, 429]:
                 time.sleep(2)
