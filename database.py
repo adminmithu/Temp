@@ -21,10 +21,25 @@ def init_db():
         phone_number TEXT,
         country TEXT,
         service TEXT,
+        sender TEXT,
         otp_code TEXT,
         seen_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
     """)
+
+    # Column migrations for existing databases
+    cursor.execute("PRAGMA table_info(seen_sms)")
+    existing_cols = [row[1] for row in cursor.fetchall()]
+    if "service" not in existing_cols:
+        cursor.execute("ALTER TABLE seen_sms ADD COLUMN service TEXT")
+        if "sender" in existing_cols:
+            cursor.execute("UPDATE seen_sms SET service = sender WHERE service IS NULL")
+    if "sender" not in existing_cols:
+        cursor.execute("ALTER TABLE seen_sms ADD COLUMN sender TEXT")
+    if "seen_at" not in existing_cols:
+        cursor.execute("ALTER TABLE seen_sms ADD COLUMN seen_at TIMESTAMP")
+        if "timestamp" in existing_cols:
+            cursor.execute("UPDATE seen_sms SET seen_at = timestamp WHERE seen_at IS NULL")
 
     # Table for enabled/disabled country settings
     cursor.execute("""
@@ -85,9 +100,9 @@ def mark_sms_seen(sms_hash: str, phone_number: str, country: str, service: str, 
     conn = get_connection()
     cursor = conn.cursor()
     cursor.execute("""
-    INSERT OR IGNORE INTO seen_sms (sms_hash, phone_number, country, service, otp_code)
-    VALUES (?, ?, ?, ?, ?)
-    """, (sms_hash, phone_number, country, service, otp_code))
+    INSERT OR IGNORE INTO seen_sms (sms_hash, phone_number, country, service, sender, otp_code)
+    VALUES (?, ?, ?, ?, ?, ?)
+    """, (sms_hash, phone_number, country, service, service, otp_code))
     conn.commit()
     conn.close()
 
@@ -233,10 +248,10 @@ def search_sms_db(query: str, limit: int = 15):
     search_pattern = f"%{query}%"
     cursor.execute("""
     SELECT * FROM seen_sms
-    WHERE service LIKE ? OR phone_number LIKE ? OR country LIKE ? OR otp_code LIKE ?
-    ORDER BY id DESC
+    WHERE service LIKE ? OR sender LIKE ? OR phone_number LIKE ? OR country LIKE ? OR otp_code LIKE ?
+    ORDER BY rowid DESC
     LIMIT ?
-    """, (search_pattern, search_pattern, search_pattern, search_pattern, limit))
+    """, (search_pattern, search_pattern, search_pattern, search_pattern, search_pattern, limit))
     rows = cursor.fetchall()
     conn.close()
     return [dict(r) for r in rows]
@@ -247,9 +262,24 @@ def get_sms_for_number(phone_number: str, limit: int = 10):
     cursor.execute("""
     SELECT * FROM seen_sms
     WHERE phone_number = ?
-    ORDER BY id DESC
+    ORDER BY rowid DESC
     LIMIT ?
     """, (phone_number, limit))
     rows = cursor.fetchall()
     conn.close()
     return [dict(r) for r in rows]
+
+def get_numbers_by_country(country_name: str, limit: int = 10):
+    """Retrieve stocked numbers for a country from SQLite database."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+    SELECT phone_number, country_name, url FROM stocked_numbers
+    WHERE country_name LIKE ?
+    ORDER BY rowid DESC
+    LIMIT ?
+    """, (f"%{country_name}%", limit))
+    rows = cursor.fetchall()
+    conn.close()
+    return [{"number": r["phone_number"], "country": r["country_name"], "url": r["url"]} for r in rows]
+

@@ -31,6 +31,64 @@ COUNTRY_FLAGS = {
     "Russia": "🇷🇺",
 }
 
+DEFAULT_FALLBACK_COUNTRIES = [
+    {"name": "UK", "url": "https://temporary-phone-number.com/UK-Phone-Number/", "flag": "🇬🇧"},
+    {"name": "US", "url": "https://temporary-phone-number.com/US-Phone-Number/", "flag": "🇺🇸"},
+    {"name": "Canada", "url": "https://temporary-phone-number.com/Canada-Phone-Number/", "flag": "🇨🇦"},
+    {"name": "Netherlands", "url": "https://temporary-phone-number.com/Netherlands-Phone-Number/", "flag": "🇳🇱"},
+    {"name": "Finland", "url": "https://temporary-phone-number.com/Finland-Phone-Number/", "flag": "🇫🇮"},
+    {"name": "Sweden", "url": "https://temporary-phone-number.com/Sweden-Phone-Number/", "flag": "🇸🇪"},
+    {"name": "France", "url": "https://temporary-phone-number.com/France-Phone-Number/", "flag": "🇫🇷"},
+    {"name": "Germany", "url": "https://temporary-phone-number.com/Germany-Phone-Number/", "flag": "🇩🇪"},
+    {"name": "Belgium", "url": "https://temporary-phone-number.com/Belgium-Phone-Number/", "flag": "🇧🇪"},
+    {"name": "Poland", "url": "https://temporary-phone-number.com/Poland-Phone-Number/", "flag": "🇵🇱"},
+    {"name": "Spain", "url": "https://temporary-phone-number.com/Spain-Phone-Number/", "flag": "🇪🇸"},
+    {"name": "Austria", "url": "https://temporary-phone-number.com/Austria-Phone-Number/", "flag": "🇦🇹"},
+    {"name": "Slovenia", "url": "https://temporary-phone-number.com/Slovenia-Phone-Number/", "flag": "🇸🇮"},
+    {"name": "China", "url": "https://temporary-phone-number.com/China-Phone-Number/", "flag": "🇨🇳"},
+    {"name": "Russia", "url": "https://temporary-phone-number.com/Russia-Phone-Number/", "flag": "🇷🇺"},
+    {"name": "Philippines", "url": "https://temporary-phone-number.com/Philippines-Phone-Number/", "flag": "🇵🇭"},
+]
+
+def detect_country_from_number(phone_number: str):
+    """
+    Accurately infer country name and flag based on phone number calling code prefix.
+    Prevents UK (+44), Finland (+358), Netherlands (+31) from being misclassified as US.
+    """
+    num = phone_number.strip().lstrip("+")
+    if num.startswith("44"):
+        return ("UK", "🇬🇧")
+    elif num.startswith("358"):
+        return ("Finland", "🇫🇮")
+    elif num.startswith("31"):
+        return ("Netherlands", "🇳🇱")
+    elif num.startswith("46"):
+        return ("Sweden", "🇸🇪")
+    elif num.startswith("33"):
+        return ("France", "🇫🇷")
+    elif num.startswith("49"):
+        return ("Germany", "🇩🇪")
+    elif num.startswith("48"):
+        return ("Poland", "🇵🇱")
+    elif num.startswith("386"):
+        return ("Slovenia", "🇸🇮")
+    elif num.startswith("32"):
+        return ("Belgium", "🇧🇪")
+    elif num.startswith("43"):
+        return ("Austria", "🇦🇹")
+    elif num.startswith("34"):
+        return ("Spain", "🇪🇸")
+    elif num.startswith("7"):
+        return ("Russia", "🇷🇺")
+    elif num.startswith("86"):
+        return ("China", "🇨🇳")
+    elif num.startswith("63"):
+        return ("Philippines", "🇵🇭")
+    elif num.startswith("1"):
+        return ("US", "🇺🇸")
+    return (None, None)
+
+
 SERVICES_MAP = [
     ("WhatsApp", r"\bwhats?app\b"),
     ("Telegram", r"\btelegram\b"),
@@ -268,7 +326,14 @@ class TempPhoneScraper:
                         raw_num = match.group(2)
                         formatted_num = f"+{raw_num}"
                         full_url = href if href.startswith("http") else BASE_URL + href
-                        flag = get_country_flag(c_name)
+
+                        # Correct country name & flag using phone prefix
+                        det_c, det_flag = detect_country_from_number(formatted_num)
+                        if det_c:
+                            c_name = det_c
+                            flag = det_flag
+                        else:
+                            flag = get_country_flag(c_name)
 
                         if not any(n["number"] == formatted_num for n in all_numbers):
                             all_numbers.append({
@@ -289,7 +354,7 @@ class TempPhoneScraper:
         return all_numbers
 
     def fetch_active_countries(self):
-        """Fetch list of active countries derived from scraped active numbers."""
+        """Fetch list of active countries derived from scraped active numbers with fallback."""
         active_nums = self.fetch_all_active_numbers(max_pages=3)
         countries = []
         for n in active_nums:
@@ -300,6 +365,12 @@ class TempPhoneScraper:
                     "url": f"https://temporary-phone-number.com/{c_name}-Phone-Number/",
                     "flag": n["flag"]
                 })
+
+        # Guarantee fallback countries are included if scraping is blocked or returns few countries
+        for fb in DEFAULT_FALLBACK_COUNTRIES:
+            if not any(c["name"].lower() == fb["name"].lower() for c in countries):
+                countries.append(fb)
+
         return countries
 
     def fetch_phone_numbers(self, country_url: str):

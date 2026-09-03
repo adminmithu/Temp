@@ -11,9 +11,10 @@ from database import (
     get_stocked_numbers_by_country, add_user_subscription,
     get_active_subscriptions_for_user, remove_user_subscription,
     remove_all_user_subscriptions, get_top_countries_stats,
-    search_sms_db, get_sms_for_number, mark_stocked_announced
+    search_sms_db, get_sms_for_number, mark_stocked_announced,
+    get_numbers_by_country
 )
-from scraper import TempPhoneScraper, get_country_flag, COUNTRY_FLAGS
+from scraper import TempPhoneScraper, get_country_flag, COUNTRY_FLAGS, DEFAULT_FALLBACK_COUNTRIES
 from telegram_notifier import send_group_notice
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
@@ -124,6 +125,9 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
     # 2. Get Number -> Country Selector
     elif data == "user_get_number":
         countries = scraper_instance.fetch_active_countries()
+        if not countries:
+            countries = DEFAULT_FALLBACK_COUNTRIES
+
         keyboard = []
         row = []
         for c in countries[:16]:
@@ -152,6 +156,10 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
         c_url = c_dict["url"] if c_dict else f"https://temporary-phone-number.com/{c_name}-Phone-Number/"
 
         numbers = scraper_instance.fetch_phone_numbers(c_url)
+        if not numbers:
+            # Fallback to local SQLite database stocked numbers
+            numbers = get_numbers_by_country(c_name)
+
         flag = get_country_flag(c_name)
 
         if not numbers:
@@ -414,6 +422,73 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
     elif data == "user_admin_back":
         await admin_command(update, context)
 
+async def handle_text_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not update.message or not update.message.text:
+        return
+    text = update.message.text.strip().lower()
+
+    # Check if text matches a country
+    matched_country = None
+    if text in ["uk", "united kingdom", "gb", "england"]:
+        matched_country = "UK"
+    elif text in ["us", "usa", "united states", "america"]:
+        matched_country = "US"
+    elif text in ["ca", "canada"]:
+        matched_country = "Canada"
+    else:
+        for c_item in DEFAULT_FALLBACK_COUNTRIES:
+            c_name = c_item["name"]
+            if c_name.lower() in text or text in c_name.lower():
+                matched_country = c_name
+                break
+
+    if matched_country:
+        c_url = f"https://temporary-phone-number.com/{matched_country}-Phone-Number/"
+        numbers = scraper_instance.fetch_phone_numbers(c_url)
+        if not numbers:
+            numbers = get_numbers_by_country(matched_country)
+
+        flag = get_country_flag(matched_country)
+        if not numbers:
+            await update.message.reply_text(
+                f"⚠️ No active numbers found for {flag} {matched_country} currently.",
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back to Main Menu", callback_data="user_main_menu")]])
+            )
+            return
+
+        keyboard = []
+        for num in numbers[:10]:
+            btn = InlineKeyboardButton(f"📱 {num['number']}", callback_data=f"sel_n_{num['number']}")
+            keyboard.append([btn])
+        keyboard.append([InlineKeyboardButton("🔙 Back to Countries", callback_data="user_get_number")])
+
+        await update.message.reply_text(
+            f"📱 *Select Phone Number for {flag} {matched_country}:*",
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+        return
+
+    # Fallback search SMS
+    results = search_sms_db(text, limit=8)
+    if results:
+        res_text = f"🔎 *SMS Search Results for:* `{text}`\n\n"
+        for r in results:
+            res_text += (
+                f"📱 `{r['phone_number']}` ({r['country']})\n"
+                f"👤 Service: *{r['service']}*\n"
+                f"🔑 Code: `<code>{r['otp_code']}</code>`\n"
+                f"💬 `{r['seen_at'] if 'seen_at' in r else ''}`\n\n"
+            )
+        await update.message.reply_text(res_text, parse_mode="Markdown")
+    else:
+        await update.message.reply_text(
+            f"❓ Command or country `{text}` not recognized.\n\n"
+            "💡 Click *📱 Get Number* below or type a country name like `uk`, `us`, `canada`, `finland`:",
+            parse_mode="Markdown",
+            reply_markup=get_main_user_keyboard()
+        )
+
 def create_admin_app():
     if not TELEGRAM_BOT_TOKEN:
         logging.error("TELEGRAM_BOT_TOKEN missing!")
@@ -429,5 +504,6 @@ def create_admin_app():
     app.add_handler(CommandHandler("admin", admin_command))
 
     app.add_handler(CallbackQueryHandler(handle_callback_query))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text_messages))
 
     return app
