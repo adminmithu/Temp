@@ -79,7 +79,7 @@ def get_country_flag(country_name: str) -> str:
     return "🌐"
 
 def is_recent_sms(time_text: str) -> bool:
-    """Filter out old historical SMS messages. Only allow INSTANT/RECENT SMS."""
+    """Filter out old historical SMS messages. Allow instant & recent SMS (up to 2 hours)."""
     txt = time_text.lower().strip()
     if not txt or "just now" in txt or "sec" in txt:
         return True
@@ -88,10 +88,17 @@ def is_recent_sms(time_text: str) -> bool:
         match = re.search(r'(\d+)\s*min', txt)
         if match:
             mins = int(match.group(1))
-            return mins <= 30
+            return mins <= 120
         return True
 
-    if any(k in txt for k in ["hour", "day", "month", "year"]):
+    if "hour" in txt:
+        match = re.search(r'(\d+)\s*hour', txt)
+        if match:
+            hrs = int(match.group(1))
+            return hrs <= 2
+        return True
+
+    if any(k in txt for k in ["day", "week", "month", "year"]):
         return False
 
     return True
@@ -116,21 +123,13 @@ def detect_service_name(message_text: str) -> str:
     return "SMS Verification"
 
 def extract_otp_code(message_text: str) -> str:
-    """Extract FULL UNMASKED numeric OTP code from message text. Never return ****."""
-    # 1. Match numeric code patterns like 123456, 123-456, G-123456
-    match = re.search(r'(?:code|otp|pin|is|verification\s*code|kod|passcode|secret)[\s:\-\=]+([A-Z0-9]{4,8})\b', message_text, re.IGNORECASE)
-    if match:
-        code = match.group(1).strip()
-        if not (len(code) == 4 and code.startswith("202")) and "*" not in code:
-            return code
+    """Extract FULL UNMASKED numeric OTP code from message text. Never return 'your' or '****'."""
+    # 1. Matches G-XXXXXX or G-123456
+    g_match = re.search(r'\b(G-\d{4,8})\b', message_text, re.IGNORECASE)
+    if g_match:
+        return g_match.group(1).upper()
 
-    hyphen_match = re.search(r'\b(\d{3}[-\s]\d{3})\b', message_text)
-    if hyphen_match:
-        c = hyphen_match.group(1).replace(" ", "")
-        if "*" not in c:
-            return c
-
-    # Search for pure 4-8 digit numbers
+    # 2. Matches 6-digit or 4-8 digit OTP numbers
     digits = re.findall(r'\b(\d{4,8})\b', message_text)
     for d in digits:
         if d.startswith("202") and len(d) == 4:
@@ -140,14 +139,26 @@ def extract_otp_code(message_text: str) -> str:
         if "*" not in d:
             return d
 
-    # Alphanumeric fallback if pure digits not found
+    # 3. Matches patterns like code 123456, otp: 123456, pin 123456
+    match = re.search(r'(?:code|otp|pin|is|verification\s*code|kod|passcode|secret)[\s:\-\=]+([A-Z0-9]{4,8})\b', message_text, re.IGNORECASE)
+    if match:
+        code = match.group(1).strip()
+        if not (len(code) == 4 and code.startswith("202")) and "*" not in code and code.lower() != "your":
+            return code
+
+    hyphen_match = re.search(r'\b(\d{3}[-\s]\d{3})\b', message_text)
+    if hyphen_match:
+        c = hyphen_match.group(1).replace(" ", "")
+        if "*" not in c:
+            return c
+
     code_match = re.search(r'\b([A-Z0-9]{4,8})\b', message_text)
     if code_match:
         c = code_match.group(1)
-        if not c.startswith("202") and not c.startswith("http") and "*" not in c:
+        if not c.startswith("202") and not c.startswith("http") and "*" not in c and c.lower() != "your":
             return c
 
-    return "Check Message"
+    return "Tap Message"
 
 class TempPhoneScraper:
     def __init__(self):
