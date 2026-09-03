@@ -1,4 +1,4 @@
-import requests
+from curl_cffi import requests as c_requests
 from bs4 import BeautifulSoup
 import re
 import logging
@@ -145,7 +145,8 @@ def extract_otp_code(message_text: str) -> str:
 
 class TempPhoneScraper:
     def __init__(self):
-        self.session = requests.Session()
+        # Impersonate Chrome browser TLS fingerprinting to bypass Cloudflare 403 on Render
+        self.session = c_requests.Session(impersonate="chrome120")
         self.session.headers.update(HEADERS)
         self.is_logged_in = False
         self.login_to_website()
@@ -178,7 +179,7 @@ class TempPhoneScraper:
             logging.error(f"Error authenticating scraper: {e}")
 
     def fetch_all_active_numbers(self, max_pages: int = 5):
-        """Fetch active numbers with retry handling for Cloudflare rate limits."""
+        """Fetch active numbers using curl_cffi Chrome impersonation to bypass Cloudflare 403 on Render."""
         all_numbers = []
         try:
             for page in range(1, max_pages + 1):
@@ -187,8 +188,8 @@ class TempPhoneScraper:
                 
                 res = self.session.get(url, timeout=10)
                 if res.status_code in [403, 429]:
-                    logging.warning(f"Cloudflare rate limit ({res.status_code}) on page {page}. Retrying after backoff...")
-                    time.sleep(3)
+                    logging.warning(f"Cloudflare notice ({res.status_code}) on page {page}. Retrying with backoff...")
+                    time.sleep(2.5)
                     res = self.session.get(url, timeout=10)
 
                 if res.status_code != 200:
@@ -257,7 +258,7 @@ class TempPhoneScraper:
             time.sleep(random.uniform(0.2, 0.5))
             res = self.session.get(url, timeout=8)
             if res.status_code in [403, 429]:
-                time.sleep(3)
+                time.sleep(2)
                 res = self.session.get(url, timeout=8)
 
             if res.status_code != 200:
